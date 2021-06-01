@@ -4,7 +4,7 @@ The gravity transmitter is used to write data to MongoDB.
 
 ## Installation
 
-You can compile pilotware with the following commands:
+You can compile gravity-transmitterm-mongodb with the following commands:
 
 ```shell
 go build ./cmd/gravity-transmitterm-mongodb
