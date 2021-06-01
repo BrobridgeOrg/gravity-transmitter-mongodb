@@ -2,10 +2,8 @@ package writer
 
 import (
 	"context"
-	"encoding/binary"
-	"math"
 
-	transmitter "github.com/BrobridgeOrg/gravity-api/service/transmitter"
+	gravity_sdk_types_record "github.com/BrobridgeOrg/gravity-sdk/types/record"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"go.mongodb.org/mongo-driver/bson"
@@ -88,7 +86,7 @@ func (writer *Writer) run() {
 	}
 }
 
-func (writer *Writer) ProcessData(record *transmitter.Record) error {
+func (writer *Writer) ProcessData(record *gravity_sdk_types_record.Record) error {
 
 	log.WithFields(log.Fields{
 		"method": record.Method,
@@ -97,50 +95,18 @@ func (writer *Writer) ProcessData(record *transmitter.Record) error {
 	}).Info("Write record")
 
 	switch record.Method {
-	case transmitter.Method_DELETE:
+	case gravity_sdk_types_record.Method_DELETE:
 		return writer.DeleteRecord(record)
-	case transmitter.Method_UPDATE:
+	case gravity_sdk_types_record.Method_UPDATE:
 		return writer.UpdateRecord(record)
-	case transmitter.Method_INSERT:
+	case gravity_sdk_types_record.Method_INSERT:
 		return writer.InsertRecord(record)
 	}
 
 	return nil
 }
 
-func (writer *Writer) GetValue(value *transmitter.Value) interface{} {
-
-	switch value.Type {
-	case transmitter.DataType_FLOAT64:
-		return math.Float64frombits(binary.LittleEndian.Uint64(value.Value))
-	case transmitter.DataType_INT64:
-		return int64(binary.LittleEndian.Uint64(value.Value))
-	case transmitter.DataType_UINT64:
-		return uint64(binary.LittleEndian.Uint64(value.Value))
-	case transmitter.DataType_BOOLEAN:
-		return int8(value.Value[0]) & 1
-	case transmitter.DataType_STRING:
-		return string(value.Value)
-	case transmitter.DataType_MAP:
-		mapValue := make(map[string]interface{}, len(value.Map.Fields))
-		for _, field := range value.Map.Fields {
-			mapValue[field.Name] = writer.GetValue(field.Value)
-		}
-		return mapValue
-	case transmitter.DataType_ARRAY:
-		arrayValue := make([]interface{}, len(value.Array.Elements))
-		for _, ele := range value.Array.Elements {
-			v := writer.GetValue(ele)
-			arrayValue = append(arrayValue, v)
-		}
-		return arrayValue
-	}
-
-	// binary
-	return value.Value
-}
-
-func (writer *Writer) InsertRecord(record *transmitter.Record) error {
+func (writer *Writer) InsertRecord(record *gravity_sdk_types_record.Record) error {
 
 	// Getting collection
 	database := writer.connector.GetClient().Database(viper.GetString("mongodb.dbname"))
@@ -149,7 +115,7 @@ func (writer *Writer) InsertRecord(record *transmitter.Record) error {
 	// Convert data to map
 	doc := make(map[string]interface{}, len(record.Fields))
 	for _, field := range record.Fields {
-		doc[field.Name] = writer.GetValue(field.Value)
+		doc[field.Name] = gravity_sdk_types_record.GetValue(field.Value)
 	}
 
 	// Write
@@ -161,7 +127,7 @@ func (writer *Writer) InsertRecord(record *transmitter.Record) error {
 	return nil
 }
 
-func (writer *Writer) UpdateRecord(record *transmitter.Record) error {
+func (writer *Writer) UpdateRecord(record *gravity_sdk_types_record.Record) error {
 
 	if record.PrimaryKey == "" {
 		return nil
@@ -177,12 +143,12 @@ func (writer *Writer) UpdateRecord(record *transmitter.Record) error {
 
 		// Getting primary key
 		if record.PrimaryKey == field.Name {
-			value = writer.GetValue(field.Value)
+			value = gravity_sdk_types_record.GetValue(field.Value)
 			continue
 		}
 
 		// Getting updated fields
-		doc[field.Name] = writer.GetValue(field.Value)
+		doc[field.Name] = gravity_sdk_types_record.GetValue(field.Value)
 	}
 
 	// Update
@@ -201,7 +167,7 @@ func (writer *Writer) UpdateRecord(record *transmitter.Record) error {
 	return nil
 }
 
-func (writer *Writer) DeleteRecord(record *transmitter.Record) error {
+func (writer *Writer) DeleteRecord(record *gravity_sdk_types_record.Record) error {
 
 	if record.PrimaryKey == "" {
 		return nil
@@ -215,7 +181,7 @@ func (writer *Writer) DeleteRecord(record *transmitter.Record) error {
 	var value interface{}
 	for _, field := range record.Fields {
 		if record.PrimaryKey == field.Name {
-			value = writer.GetValue(field.Value)
+			value = gravity_sdk_types_record.GetValue(field.Value)
 			break
 		}
 	}

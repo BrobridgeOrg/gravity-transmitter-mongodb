@@ -3,7 +3,8 @@ module github.com/BrobridgeOrg/gravity-transmitter-mongodb
 go 1.15
 
 require (
-	github.com/BrobridgeOrg/gravity-api v0.2.4
+	github.com/BrobridgeOrg/gravity-api v0.2.14
+	github.com/BrobridgeOrg/gravity-sdk v0.0.12
 	github.com/BrobridgeOrg/gravity-transmitter-postgres v0.0.0-20201002211924-6b3def7a7db0
 	github.com/jmoiron/sqlx v1.2.0
 	github.com/lib/pq v1.8.0
