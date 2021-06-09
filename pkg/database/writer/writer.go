@@ -2,8 +2,10 @@ package writer
 
 import (
 	"context"
+	"time"
 
 	gravity_sdk_types_record "github.com/BrobridgeOrg/gravity-sdk/types/record"
+	"github.com/BrobridgeOrg/gravity-transmitter-mongodb/pkg/database"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"go.mongodb.org/mongo-driver/bson"
@@ -24,36 +26,19 @@ type DatabaseInfo struct {
 	DbName   string `json:"dbname"`
 }
 
-type RecordDef struct {
-	HasPrimary    bool
-	PrimaryColumn string
-	Values        map[string]interface{}
-	ColumnDefs    []*ColumnDef
-}
-
-type ColumnDef struct {
-	ColumnName  string
-	BindingName string
-	Value       interface{}
-}
-
-type DBCommand struct {
-	QueryStr string
-	Args     map[string]interface{}
-}
-
 type Writer struct {
-	dbInfo    *DatabaseInfo
-	connector *MongoDBConnector
-	//	db       *sqlx.DB
-	commands chan *DBCommand
+	dbInfo            *DatabaseInfo
+	connector         *MongoDBConnector
+	commands          chan *DBCommand
+	completionHandler database.CompletionHandler
 }
 
 func NewWriter() *Writer {
 	return &Writer{
-		dbInfo:    &DatabaseInfo{},
-		connector: NewMongoDBConnector(),
-		commands:  make(chan *DBCommand, 2048),
+		dbInfo:            &DatabaseInfo{},
+		connector:         NewMongoDBConnector(),
+		commands:          make(chan *DBCommand, 2048),
+		completionHandler: func(database.DBCommand) {},
 	}
 }
 
@@ -65,8 +50,6 @@ func (writer *Writer) Init() error {
 		return err
 	}
 
-	//TODO: Reconnect
-
 	go writer.run()
 
 	return nil
@@ -75,42 +58,36 @@ func (writer *Writer) Init() error {
 func (writer *Writer) run() {
 	for {
 		select {
-		case _ = <-writer.commands:
-			/*
-				_, err := writer.db.NamedExec(cmd.QueryStr, cmd.Args)
-				if err != nil {
-					log.Error(err)
-				}
-			*/
+		case cmd := <-writer.commands:
+			writer.completionHandler(database.DBCommand(cmd))
 		}
 	}
 }
 
-func (writer *Writer) ProcessData(record *gravity_sdk_types_record.Record) error {
+func (writer *Writer) SetCompletionHandler(fn database.CompletionHandler) {
+	writer.completionHandler = fn
+}
 
-	log.WithFields(log.Fields{
-		"method": record.Method,
-		"event":  record.EventName,
-		"table":  record.Table,
-	}).Info("Write record")
+func (writer *Writer) ProcessData(reference interface{}, record *gravity_sdk_types_record.Record) error {
 
 	switch record.Method {
 	case gravity_sdk_types_record.Method_DELETE:
-		return writer.DeleteRecord(record)
+		return writer.DeleteRecord(reference, record)
 	case gravity_sdk_types_record.Method_UPDATE:
-		return writer.UpdateRecord(record)
+		return writer.UpdateRecord(reference, record)
 	case gravity_sdk_types_record.Method_INSERT:
-		return writer.InsertRecord(record)
+		return writer.InsertRecord(reference, record)
 	}
 
 	return nil
+
 }
 
-func (writer *Writer) InsertRecord(record *gravity_sdk_types_record.Record) error {
+func (writer *Writer) InsertRecord(reference interface{}, record *gravity_sdk_types_record.Record) error {
 
 	// Getting collection
-	database := writer.connector.GetClient().Database(viper.GetString("mongodb.dbname"))
-	collection := database.Collection(record.Table)
+	mdb := writer.connector.GetClient().Database(viper.GetString("mongodb.dbname"))
+	collection := mdb.Collection(record.Table)
 
 	// Convert data to map
 	doc := make(map[string]interface{}, len(record.Fields))
@@ -119,23 +96,39 @@ func (writer *Writer) InsertRecord(record *gravity_sdk_types_record.Record) erro
 	}
 
 	// Write
-	_, err := collection.InsertOne(context.Background(), doc)
-	if err != nil {
-		return err
+	for {
+		_, err := collection.InsertOne(context.Background(), doc)
+		if err != nil {
+			log.Error(err)
+			<-time.After(time.Second * 5)
+			log.WithFields(log.Fields{
+				"event_name": record.EventName,
+				"method":     record.Method.String(),
+				"table":      record.Table,
+			}).Warn("Retry to write record to database...")
+
+			continue
+		}
+		break
+	}
+
+	writer.commands <- &DBCommand{
+		Reference: reference,
+		Record:    record,
 	}
 
 	return nil
 }
 
-func (writer *Writer) UpdateRecord(record *gravity_sdk_types_record.Record) error {
+func (writer *Writer) UpdateRecord(reference interface{}, record *gravity_sdk_types_record.Record) error {
 
 	if record.PrimaryKey == "" {
 		return nil
 	}
 
 	// Getting collection
-	database := writer.connector.GetClient().Database(viper.GetString("mongodb.dbname"))
-	collection := database.Collection(record.Table)
+	mdb := writer.connector.GetClient().Database(viper.GetString("mongodb.dbname"))
+	collection := mdb.Collection(record.Table)
 
 	var value interface{}
 	doc := make(map[string]interface{}, len(record.Fields))
@@ -152,30 +145,46 @@ func (writer *Writer) UpdateRecord(record *gravity_sdk_types_record.Record) erro
 	}
 
 	// Update
-	_, err := collection.UpdateOne(
-		context.Background(),
-		bson.M{
-			record.PrimaryKey: value,
-		}, bson.M{
-			"$set": doc,
-		},
-	)
-	if err != nil {
-		return err
+	for {
+		_, err := collection.UpdateOne(
+			context.Background(),
+			bson.M{
+				record.PrimaryKey: value,
+			}, bson.M{
+				"$set": doc,
+			},
+		)
+		if err != nil {
+			log.Error(err)
+			<-time.After(time.Second * 5)
+			log.WithFields(log.Fields{
+				"event_name": record.EventName,
+				"method":     record.Method.String(),
+				"table":      record.Table,
+			}).Warn("Retry to write record to database...")
+
+			continue
+		}
+		break
+	}
+
+	writer.commands <- &DBCommand{
+		Reference: reference,
+		Record:    record,
 	}
 
 	return nil
 }
 
-func (writer *Writer) DeleteRecord(record *gravity_sdk_types_record.Record) error {
+func (writer *Writer) DeleteRecord(reference interface{}, record *gravity_sdk_types_record.Record) error {
 
 	if record.PrimaryKey == "" {
 		return nil
 	}
 
 	// Getting collection
-	database := writer.connector.GetClient().Database(viper.GetString("mongodb.dbname"))
-	collection := database.Collection(record.Table)
+	mdb := writer.connector.GetClient().Database(viper.GetString("mongodb.dbname"))
+	collection := mdb.Collection(record.Table)
 
 	// Getting primary key
 	var value interface{}
@@ -186,12 +195,28 @@ func (writer *Writer) DeleteRecord(record *gravity_sdk_types_record.Record) erro
 		}
 	}
 
-	// Write
-	_, err := collection.DeleteOne(context.Background(), bson.M{
-		record.PrimaryKey: value,
-	})
-	if err != nil {
-		return err
+	// Delete
+	for {
+		_, err := collection.DeleteOne(context.Background(), bson.M{
+			record.PrimaryKey: value,
+		})
+		if err != nil {
+			log.Error(err)
+			<-time.After(time.Second * 5)
+			log.WithFields(log.Fields{
+				"event_name": record.EventName,
+				"method":     record.Method.String(),
+				"table":      record.Table,
+			}).Warn("Retry to write record to database...")
+
+			continue
+		}
+		break
+	}
+
+	writer.commands <- &DBCommand{
+		Reference: reference,
+		Record:    record,
 	}
 
 	return nil
