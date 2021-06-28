@@ -6,8 +6,11 @@ host = "0.0.0.0:4222"
 subscriber_id = "mongodb_transmitter"
 subscriber_name = "MongoDB Transmitter"
 state_store = "./statestore"
-worker_count = 16
+worker_count = 4
 verbose = true
+pipeline_start = 0
+pipeline_end = -1
+
 
 [initial_load]
 enabled = true
