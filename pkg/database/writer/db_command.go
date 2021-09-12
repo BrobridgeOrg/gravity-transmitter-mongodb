@@ -9,6 +9,7 @@ type DBCommand struct {
 	Record     *gravity_sdk_types_record.Record
 	QueryStr   string
 	Args       map[string]interface{}
+	Tables     []string
 }
 
 func (cmd *DBCommand) GetReference() interface{} {
@@ -21,4 +22,8 @@ func (cmd *DBCommand) GetPipelineID() uint64 {
 
 func (cmd *DBCommand) GetSequence() uint64 {
 	return cmd.Sequence
+}
+
+func (cmd *DBCommand) GetTables() []string {
+	return cmd.Tables
 }

@@ -68,22 +68,22 @@ func (writer *Writer) SetCompletionHandler(fn database.CompletionHandler) {
 	writer.completionHandler = fn
 }
 
-func (writer *Writer) ProcessData(reference interface{}, record *gravity_sdk_types_record.Record) error {
+func (writer *Writer) ProcessData(reference interface{}, record *gravity_sdk_types_record.Record, tables []string) error {
 
 	switch record.Method {
 	case gravity_sdk_types_record.Method_DELETE:
-		return writer.DeleteRecord(reference, record)
+		return writer.DeleteRecord(reference, record, tables)
 	case gravity_sdk_types_record.Method_UPDATE:
-		return writer.UpdateRecord(reference, record)
+		return writer.UpdateRecord(reference, record, tables)
 	case gravity_sdk_types_record.Method_INSERT:
-		return writer.InsertRecord(reference, record)
+		return writer.InsertRecord(reference, record, tables)
 	}
 
 	return nil
 
 }
 
-func (writer *Writer) InsertRecord(reference interface{}, record *gravity_sdk_types_record.Record) error {
+func (writer *Writer) InsertRecord(reference interface{}, record *gravity_sdk_types_record.Record, tables []string) error {
 
 	// Getting collection
 	mdb := writer.connector.GetClient().Database(viper.GetString("mongodb.dbname"))
@@ -115,12 +115,13 @@ func (writer *Writer) InsertRecord(reference interface{}, record *gravity_sdk_ty
 	writer.commands <- &DBCommand{
 		Reference: reference,
 		Record:    record,
+		Tables:    tables,
 	}
 
 	return nil
 }
 
-func (writer *Writer) UpdateRecord(reference interface{}, record *gravity_sdk_types_record.Record) error {
+func (writer *Writer) UpdateRecord(reference interface{}, record *gravity_sdk_types_record.Record, tables []string) error {
 
 	if record.PrimaryKey == "" {
 		return nil
@@ -171,12 +172,13 @@ func (writer *Writer) UpdateRecord(reference interface{}, record *gravity_sdk_ty
 	writer.commands <- &DBCommand{
 		Reference: reference,
 		Record:    record,
+		Tables:    tables,
 	}
 
 	return nil
 }
 
-func (writer *Writer) DeleteRecord(reference interface{}, record *gravity_sdk_types_record.Record) error {
+func (writer *Writer) DeleteRecord(reference interface{}, record *gravity_sdk_types_record.Record, tables []string) error {
 
 	if record.PrimaryKey == "" {
 		return nil
@@ -217,6 +219,7 @@ func (writer *Writer) DeleteRecord(reference interface{}, record *gravity_sdk_ty
 	writer.commands <- &DBCommand{
 		Reference: reference,
 		Record:    record,
+		Tables:    tables,
 	}
 
 	return nil
