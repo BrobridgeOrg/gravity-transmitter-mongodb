@@ -3,7 +3,7 @@ module github.com/BrobridgeOrg/gravity-transmitter-mongodb
 go 1.15
 
 require (
-	github.com/BrobridgeOrg/gravity-sdk v0.0.44
+	github.com/BrobridgeOrg/gravity-sdk v0.0.45
 	github.com/jinzhu/copier v0.3.2
 	github.com/jmoiron/sqlx v1.3.4
 	github.com/satori/go.uuid v1.2.0 // indirect
