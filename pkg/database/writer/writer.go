@@ -2,11 +2,14 @@ package writer
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	gravity_sdk_types_record "github.com/BrobridgeOrg/gravity-sdk/types/record"
 	"github.com/BrobridgeOrg/gravity-transmitter-mongodb/pkg/database"
+
 	buffered_input "github.com/cfsghost/buffered-input"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"go.mongodb.org/mongo-driver/bson"
@@ -157,20 +160,24 @@ func (writer *Writer) processData(dbCommands []*DBCommand) {
 
 	for table, colRecord := range colls {
 		collection := mdb.Collection(table)
-
 		for {
-			_, err := collection.BulkWrite(context.Background(), colRecord.models)
-			if err != nil {
+
+			var total int64
+			if result, err := collection.BulkWrite(context.Background(), colRecord.models); err == nil {
+				total = atomic.AddInt64((*int64)(&total), result.InsertedCount)
+				total = atomic.AddInt64((*int64)(&total), result.ModifiedCount)
+				total = atomic.AddInt64((*int64)(&total), result.DeletedCount)
+				for _, cmd := range colRecord.cmds[:int(total)] {
+					writer.completionHandler(database.DBCommand(cmd))
+				}
+				break
+			} else {
+
 				log.Error(err)
 				time.Sleep(3 * time.Second)
 				continue
 			}
 
-			for _, cmd := range colRecord.cmds {
-				writer.completionHandler(database.DBCommand(cmd))
-			}
-
-			break
 		}
 	}
 

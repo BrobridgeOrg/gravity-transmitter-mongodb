@@ -4,18 +4,24 @@ import (
 	writer "github.com/BrobridgeOrg/gravity-transmitter-mongodb/pkg/database/writer"
 	subscriber "github.com/BrobridgeOrg/gravity-transmitter-mongodb/pkg/subscriber/service"
 	log "github.com/sirupsen/logrus"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 )
 
 type AppInstance struct {
-	done       chan bool
+	done       chan os.Signal
 	writer     *writer.Writer
 	subscriber *subscriber.Subscriber
 }
 
 func NewAppInstance() *AppInstance {
 
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, os.Kill, syscall.SIGTERM)
 	a := &AppInstance{
-		done: make(chan bool),
+		done: sig,
 	}
 
 	return a
@@ -54,6 +60,9 @@ func (a *AppInstance) Run() error {
 	}
 
 	<-a.done
+	a.subscriber.Stop()
+	time.Sleep(5 * time.Second)
+	log.Error("Bye!")
 
 	return nil
 }

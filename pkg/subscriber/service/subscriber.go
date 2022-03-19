@@ -239,7 +239,6 @@ func (subscriber *Subscriber) initializePipelines() error {
 }
 
 func (subscriber *Subscriber) eventHandler(msg *gravity_subscriber.Message) {
-
 	err := subscriber.processData(msg)
 	if err != nil {
 		log.Error(err)
@@ -287,4 +286,9 @@ func (subscriber *Subscriber) Run() error {
 	subscriber.subscriber.Start()
 
 	return nil
+}
+
+func (subscriber *Subscriber) Stop() {
+	subscriber.subscriber.Disconnect()
+
 }
