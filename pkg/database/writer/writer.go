@@ -163,7 +163,7 @@ func (writer *Writer) processData(dbCommands []*DBCommand) {
 		collectionRecord.cmds = append(collectionRecord.cmds, cmd)
 	}
 
-	opts := options.BulkWrite().SetOrdered(false)
+	opts := options.BulkWrite().SetOrdered(true)
 
 	// Perform updates for each table
 	for table, colRecord := range colls {
