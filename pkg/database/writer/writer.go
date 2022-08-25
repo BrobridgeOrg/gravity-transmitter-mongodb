@@ -2,7 +2,6 @@ package writer
 
 import (
 	"context"
-	"sync/atomic"
 	"time"
 
 	gravity_sdk_types_record "github.com/BrobridgeOrg/gravity-sdk/types/record"
@@ -14,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 var (
@@ -104,7 +104,7 @@ func (writer *Writer) processData(dbCommands []*DBCommand) {
 	// Getting collection
 	mdb := writer.connector.GetClient().Database(viper.GetString("mongodb.dbname"))
 
-	colls := make(map[string]CollectionRecord, 0)
+	colls := make(map[string]*CollectionRecord, 0)
 	//var models []mongo.WriteModel
 	//var cmds []*DBCommand
 	for _, cmd := range dbCommands {
@@ -151,33 +151,49 @@ func (writer *Writer) processData(dbCommands []*DBCommand) {
 
 		}
 
-		collectionRecord := colls[cmd.Record.Table]
+		// Getting status for specific table
+		collectionRecord, ok := colls[cmd.Record.Table]
+		if !ok {
+			collectionRecord = &CollectionRecord{}
+			colls[cmd.Record.Table] = collectionRecord
+		}
+
+		// Update models and commands
 		collectionRecord.models = append(collectionRecord.models, model)
 		collectionRecord.cmds = append(collectionRecord.cmds, cmd)
-
-		colls[cmd.Record.Table] = collectionRecord
 	}
 
+	opts := options.BulkWrite().SetOrdered(false)
+
+	// Perform updates for each table
 	for table, colRecord := range colls {
+
 		collection := mdb.Collection(table)
+		cmds := colRecord.cmds
+		models := colRecord.models
+
 		for {
 
-			var total int64
-			if result, err := collection.BulkWrite(context.Background(), colRecord.models); err == nil {
-				total = atomic.AddInt64((*int64)(&total), result.InsertedCount)
-				total = atomic.AddInt64((*int64)(&total), result.ModifiedCount)
-				total = atomic.AddInt64((*int64)(&total), result.DeletedCount)
-				for _, cmd := range colRecord.cmds[:int(total)] {
-					writer.completionHandler(database.DBCommand(cmd))
-				}
-				break
-			} else {
+			result, err := collection.BulkWrite(context.Background(), models, opts)
 
+			// Commands was finished
+			total := result.InsertedCount + result.ModifiedCount + result.DeletedCount
+			for _, cmd := range cmds[:total] {
+				writer.completionHandler(cmd)
+			}
+
+			// Update cursor
+			cmds = cmds[total:]
+			models = models[total:]
+
+			// Perform the rest of updates in 3 seconds
+			if err != nil {
 				log.Error(err)
 				time.Sleep(3 * time.Second)
 				continue
 			}
 
+			break
 		}
 	}
 
